@@ -23,7 +23,7 @@ yarn-error.log*
 package-lock.json
 
 # Environment / Secrets
-.env
+.venv
 .env.local
 .env.*.local
 kms_address.txt
