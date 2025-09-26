@@ -1,0 +1,16 @@
+# Node modules
+node_modules
+
+# CDK outputs
+cdk.out/
+*.template.json
+cdk.context.json
+
+# Environment files
+.env
+.envrc
+
+#python
+.venv/
+__pycache__/
+*.pyc 
