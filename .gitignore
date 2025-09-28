@@ -10,7 +10,15 @@ cdk.context.json
 .env
 .envrc
 
-#python
-.venv/
-__pycache__/
-*.pyc 
+#python-app
+*.pyc
+*.swp
+package-lock.json
+__pycache__
+.pytest_cache
+.venv
+*.egg-info
+
+# CDK asset staging directory
+.cdk.staging
+cdk.out 
