@@ -1,0 +1,9 @@
+{
+  "folders": [
+    { "path": "cloud" },
+    { "path": "local" }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "${workspaceFolder:cloud}/.venv/bin/python"
+  }
+}

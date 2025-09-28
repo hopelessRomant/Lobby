@@ -9,6 +9,7 @@ cdk.context.json
 # Environment files
 .env
 .envrc
+.vscode
 
 #python-app
 *.pyc
