@@ -15,17 +15,19 @@ def require_int(value: Any, field: str) -> int:
 
 def estimate_eip1559_fees(
     w3: Web3,
-    lookback_blocks: int = 4,
+    lookback_blocks: int = 5,
     percentile: int = 10,
     priority_fee_buffer: float = 0.10,
     max_priority_rpc_retries: int = 5,
     rpc_retry_delay_seconds: float = 0.25
-) -> Tuple[int, int, int, int, int]:
+) -> Tuple[int, int, int]:
     # Fetch the 10th percentile of the reward (priority fee) from recent blocks
     try:
         fee_history = w3.eth.fee_history(lookback_blocks, "pending", [percentile])
         rewards = fee_history.get("reward", [])
+        print(rewards)
         rewards_flat = [int(r[0]) for r in rewards if r]
+        print(rewards_flat)
         avg_tip = int(sum(rewards_flat) / len(rewards_flat)) if rewards_flat else None
     except Exception:
         avg_tip = None
@@ -48,6 +50,7 @@ def estimate_eip1559_fees(
     else:
         buffered_tip = int(avg_tip * (1.0 + priority_fee_buffer))
         tip = min(buffered_tip, node_tip) if node_tip is not None else buffered_tip
+        print(buffered_tip, node_tip)
 
     # Fetch the base fee from the pending block
     try:
@@ -59,10 +62,9 @@ def estimate_eip1559_fees(
 
     # Calculate maxFeePerGas as 2 * baseFee + tip
     int_tip = require_int(tip, "tip")
-    int_node_tip = require_int(node_tip, "node_tip")
     max_fee = base_fee * 2 + int_tip
 
-    return base_fee, buffered_tip, int_node_tip, int_tip, max_fee
+    return base_fee, int_tip, max_fee
 
 if __name__ == "__main__":
     rpc_url = os.getenv("ETH_INFURA")
@@ -70,11 +72,8 @@ if __name__ == "__main__":
         raise ValueError("ETH_RPC_URL environment variable is not set.")
 
     w3 = Web3(Web3.HTTPProvider(rpc_url))
-    base_fee, max_priority_buffer, max_priority_node,max_priority_fee, max_fee = estimate_eip1559_fees(w3)
+    base_fee, max_priority_fee, max_fee = estimate_eip1559_fees(w3)
 
     print("Base Fee (gwei):", base_fee / GWEI)
-    print("Max Priority buffer (gwei):", max_priority_buffer / GWEI)
-    print("Max Priority node (gwei):", max_priority_node / GWEI)
-    print("Max Priority node (gwei):", max_priority_node / GWEI)
     print("Max Priority fee (gwei):", max_priority_fee / GWEI)
     print("Max Fee (gwei):", max_fee / GWEI)
