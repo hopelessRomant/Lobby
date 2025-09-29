@@ -20,7 +20,7 @@ def estimate_eip1559_fees(
     priority_fee_buffer: float = 0.10,
     max_priority_rpc_retries: int = 5,
     rpc_retry_delay_seconds: float = 0.25
-) -> Tuple[int, int, int, int]:
+) -> Tuple[int, int, int, int, int]:
     # Fetch the 10th percentile of the reward (priority fee) from recent blocks
     try:
         fee_history = w3.eth.fee_history(lookback_blocks, "pending", [percentile])
@@ -62,7 +62,7 @@ def estimate_eip1559_fees(
     int_node_tip = require_int(node_tip, "node_tip")
     max_fee = base_fee * 2 + int_tip
 
-    return base_fee, buffered_tip, int_node_tip, max_fee
+    return base_fee, buffered_tip, int_node_tip, int_tip, max_fee
 
 if __name__ == "__main__":
     rpc_url = os.getenv("ETH_INFURA")
@@ -70,9 +70,11 @@ if __name__ == "__main__":
         raise ValueError("ETH_RPC_URL environment variable is not set.")
 
     w3 = Web3(Web3.HTTPProvider(rpc_url))
-    base_fee, max_priority_buffer, max_priority_node, max_fee = estimate_eip1559_fees(w3)
+    base_fee, max_priority_buffer, max_priority_node,max_priority_fee, max_fee = estimate_eip1559_fees(w3)
 
     print("Base Fee (gwei):", base_fee / GWEI)
     print("Max Priority buffer (gwei):", max_priority_buffer / GWEI)
     print("Max Priority node (gwei):", max_priority_node / GWEI)
+    print("Max Priority node (gwei):", max_priority_node / GWEI)
+    print("Max Priority fee (gwei):", max_priority_fee / GWEI)
     print("Max Fee (gwei):", max_fee / GWEI)
