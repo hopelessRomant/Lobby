@@ -1,5 +1,6 @@
 import os
 import time
+import statistics
 from web3 import Web3
 from typing import Tuple, Any
 
@@ -15,42 +16,43 @@ def require_int(value: Any, field: str) -> int:
 
 def estimate_eip1559_fees(
     w3: Web3,
-    lookback_blocks: int = 5,
+    lookback_blocks: int = 7,
     percentile: int = 10,
     priority_fee_buffer: float = 0.10,
     max_priority_rpc_retries: int = 5,
     rpc_retry_delay_seconds: float = 0.25
-) -> Tuple[int, int, int]:
+) -> Tuple[int, int, Any, int]:
     # Fetch the 10th percentile of the reward (priority fee) from recent blocks
     try:
         fee_history = w3.eth.fee_history(lookback_blocks, "pending", [percentile])
         rewards = fee_history.get("reward", [])
-        print(rewards)
         rewards_flat = [int(r[0]) for r in rewards if r]
-        print(rewards_flat)
-        avg_tip = int(sum(rewards_flat) / len(rewards_flat)) if rewards_flat else None
+        print(sorted(rewards_flat))
+        median_tip = statistics.median(rewards_flat) if rewards_flat else None
+        print(median_tip)
     except Exception:
-        avg_tip = None
+        median_tip = None
 
     # Retry fetching the node's max priority fee if the above fails
     node_tip = None
     for _ in range(max_priority_rpc_retries):
         try:
-            node_tip = int(w3.eth.max_priority_fee)
+            node_tip = int((w3.eth.max_priority_fee)*(1+priority_fee_buffer))
+            print(node_tip)
             break
         except Exception:
             node_tip = None
             time.sleep(rpc_retry_delay_seconds)
 
     # Determine the tip to use
-    if avg_tip is None and node_tip is None:
-        tip = gwei_to_wei(1.0) # Fallback to 1 gwei if both methods fail
-    elif avg_tip is None:
+    if median_tip is None and node_tip is None:
+        tip = gwei_to_wei(0.01) # Fallback to 0.01 gwei if both methods fail
+    elif median_tip is None:
         tip = node_tip
     else:
-        buffered_tip = int(avg_tip * (1.0 + priority_fee_buffer))
+        buffered_tip = int(median_tip * (1.0 + priority_fee_buffer))
         tip = min(buffered_tip, node_tip) if node_tip is not None else buffered_tip
-        print(buffered_tip, node_tip)
+        print(buffered_tip)
 
     # Fetch the base fee from the pending block
     try:
@@ -64,7 +66,7 @@ def estimate_eip1559_fees(
     int_tip = require_int(tip, "tip")
     max_fee = base_fee * 2 + int_tip
 
-    return base_fee, int_tip, max_fee
+    return base_fee, int_tip, buffered_tip, max_fee
 
 if __name__ == "__main__":
     rpc_url = os.getenv("ETH_INFURA")
@@ -72,8 +74,9 @@ if __name__ == "__main__":
         raise ValueError("ETH_RPC_URL environment variable is not set.")
 
     w3 = Web3(Web3.HTTPProvider(rpc_url))
-    base_fee, max_priority_fee, max_fee = estimate_eip1559_fees(w3)
+    base_fee, min_priority_fee, history_buffered_median, max_fee = estimate_eip1559_fees(w3)
 
     print("Base Fee (gwei):", base_fee / GWEI)
-    print("Max Priority fee (gwei):", max_priority_fee / GWEI)
+    print("min Priority fee (gwei):", min_priority_fee / GWEI)
+    print("history_buffered_median fee (gwei):", history_buffered_median / GWEI)
     print("Max Fee (gwei):", max_fee / GWEI)
