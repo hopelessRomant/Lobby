@@ -1,12 +1,17 @@
 import os
 import time
 from web3 import Web3
-from typing import Tuple
+from typing import Tuple, Any
 
 GWEI = 10**9
 
 def gwei_to_wei(x: float) -> int:
     return int(x * GWEI)
+
+def require_int(value: Any, field: str) -> int:
+    if value is None:
+        raise ValueError(f"Missing: {field}")
+    return int(value)
 
 def estimate_eip1559_fees(
     w3: Web3,
@@ -37,7 +42,7 @@ def estimate_eip1559_fees(
 
     # Determine the tip to use
     if avg_tip is None and node_tip is None:
-        tip = gwei_to_wei(2.0)  # Default to 2 gwei if both methods fail
+        tip = gwei_to_wei(1.0) # Fallback to 1 gwei if both methods fail
     elif avg_tip is None:
         tip = node_tip
     else:
@@ -47,29 +52,25 @@ def estimate_eip1559_fees(
     # Fetch the base fee from the pending block
     try:
         pending_block = w3.eth.get_block("pending")
-        base_fee = int(pending_block.get("baseFeePerGas", pending_block.get("baseFee")))
+        base_fee = require_int(pending_block.get("baseFeePerGas", pending_block.get("baseFee")), "baseFeePerGas")
     except Exception:
         latest_block = w3.eth.get_block("latest")
-        base_fee = int(latest_block.get("baseFeePerGas", latest_block.get("baseFee")))
+        base_fee = require_int(latest_block.get("baseFeePerGas", latest_block.get("baseFee")), "baseFeePerGas")
 
     # Calculate maxFeePerGas as 2 * baseFee + tip
-    max_fee = base_fee * 2 + tip
+    int_tip = require_int(tip, "tip")
+    max_fee = base_fee * 2 + int_tip
 
-    return base_fee, tip, max_fee
+    return base_fee, int_tip, max_fee
 
 if __name__ == "__main__":
-    # Load RPC URL from environment variables
     rpc_url = os.getenv("ETH_INFURA")
     if rpc_url is None:
         raise ValueError("ETH_RPC_URL environment variable is not set.")
 
-    # Initialize Web3 instance
     w3 = Web3(Web3.HTTPProvider(rpc_url))
-
-    # Estimate fees
     base_fee, max_priority_fee, max_fee = estimate_eip1559_fees(w3)
 
-    # Print the estimated fees in gwei
     print("Base Fee (gwei):", base_fee / GWEI)
     print("Max Priority Fee (gwei):", max_priority_fee / GWEI)
     print("Max Fee (gwei):", max_fee / GWEI)
