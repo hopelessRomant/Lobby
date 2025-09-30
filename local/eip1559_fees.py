@@ -1,82 +1,183 @@
 import os
 import time
-import statistics
+import math
+import logging
+from typing import Tuple, Optional, Any, List
 from web3 import Web3
-from typing import Tuple, Any
+
+LOG = logging.getLogger(__name__)
+LOG.addHandler(logging.StreamHandler())
+LOG.setLevel(logging.INFO)
 
 GWEI = 10**9
 
-def gwei_to_wei(x: float) -> int:
-    return int(x * GWEI)
+def gwei_to_wei(g: float) -> int:
+    return int(g * GWEI)
 
-def require_int(value: Any, field: str) -> int:
-    if value is None:
-        raise ValueError(f"Missing: {field}")
-    return int(value)
+def wei_to_gwei(w: int) -> float:
+    return w / GWEI
+
+def to_int_hexsafe(val: Any) -> Optional[int]:
+    """Convert a possible hex-string or int to int, or return None."""
+    if val is None:
+        return None
+    if isinstance(val, int):
+        return val
+    if isinstance(val, str):
+        try:
+            # web3 sometimes returns hex strings
+            return int(val, 16) if val.startswith("0x") else int(val)
+        except Exception:
+            return None
+    try:
+        return int(val)
+    except Exception:
+        return None
+
+def percentile_value(data: List[int], percentile: float) -> Optional[int]:
+    """Return percentile using linear interpolation (0-100)."""
+    if not data:
+        return None
+    if percentile <= 0:
+        return data[0]
+    if percentile >= 100:
+        return data[-1]
+    ds = sorted(data)
+    k = (len(ds) - 1) * (percentile / 100.0)
+    f = math.floor(k)
+    c = math.ceil(k)
+    if f == c:
+        return ds[int(k)]
+    d0, d1 = ds[f], ds[c]
+    return int(d0 + (k - f) * (d1 - d0))
+
+def _flatten_rewards(rewards) -> List[int]:
+    """reward is list of lists (per-block). Flatten and convert to ints safely."""
+    out = []
+    if not rewards:
+        return out
+    for block_rewards in rewards:
+        if block_rewards is None:
+            continue
+        # block_rewards itself is a list where each element is a hex/int for the requested percentile(s)
+        for r in block_rewards:
+            rv = to_int_hexsafe(r)
+            if rv is not None:
+                out.append(rv)
+    return out
 
 def estimate_eip1559_fees(
     w3: Web3,
-    lookback_blocks: int = 7,
-    percentile: int = 10,
-    priority_fee_buffer: float = 0.10,
-    max_priority_rpc_retries: int = 5,
-    rpc_retry_delay_seconds: float = 0.25
-) -> Tuple[int, int, Any, int]:
-    # Fetch the 10th percentile of the reward (priority fee) from recent blocks
-    try:
-        fee_history = w3.eth.fee_history(lookback_blocks, "pending", [percentile])
-        rewards = fee_history.get("reward", [])
-        rewards_flat = [int(r[0]) for r in rewards if r]
-        print(sorted(rewards_flat))
-        median_tip = statistics.median(rewards_flat) if rewards_flat else None
-        print(median_tip)
-    except Exception:
-        median_tip = None
+    lookback_blocks: int = 20,
+    reward_percentile: float = 50.0,
+    priority_fee_buffer: float = 0.20,
+    max_priority_fee_cap_gwei: float = 100.0,
+    base_fee_bump_blocks: int = 2,
+    safety_multiplier: float = 1.05,
+    rpc_retry_attempts: int = 3,
+    rpc_retry_delay: float = 0.2,
+) -> Tuple[int, int, Optional[int], int]:
+    """
+    Returns: (base_fee_wei, tip_wei, median_unbuffered_wei_or_None, max_fee_wei)
+    - base_fee_wei: pending block base fee (or latest on failure)
+    - tip_wei: chosen priority fee (wei) — workable average-ish value
+    - median_unbuffered_wei: median raw from history (before buffer)
+    - max_fee_wei: recommended maxFeePerGas (wei)
+    """
 
-    # Retry fetching the node's max priority fee if the above fails
+    # ------------- 1) Gather historical priority fee (from fee_history) --------------
+    median_unbuffered = None
+    try:
+        # newestBlock "latest" is widely supported; some nodes also accept "pending" but not guaranteed
+        fh = w3.eth.fee_history(lookback_blocks, "latest", [reward_percentile])
+        rewards = fh.get("reward", [])
+        flat = _flatten_rewards(rewards)
+        median_unbuffered = percentile_value(flat, reward_percentile)
+        LOG.debug("fee_history flattened rewards count=%d", len(flat))
+    except Exception as e:
+        LOG.warning("fee_history failed: %s", e)
+        median_unbuffered = None
+
+    # ------------- 2) Ask node for its max priority fee suggestion if available -------------
     node_tip = None
-    for _ in range(max_priority_rpc_retries):
+    # web3.py exposes max_priority_fee as a helper method on some providers
+    for attempt in range(rpc_retry_attempts):
         try:
-            node_tip = int((w3.eth.max_priority_fee)*(1+priority_fee_buffer))
-            print(node_tip)
+            if hasattr(w3.eth, "max_priority_fee"):
+                try:
+                    raw = w3.eth.max_priority_fee
+                    # If it's callable attribute
+                    node_tip = to_int_hexsafe(raw() if callable(raw) else raw)
+                except TypeError:
+                    # older web3 may have it as a property (int)
+                    node_tip = to_int_hexsafe(getattr(w3.eth, "max_priority_fee", None))
+            else:
+                node_tip = None
             break
-        except Exception:
+        except Exception as e:
+            LOG.debug("max_priority_fee attempt %d failed: %s", attempt + 1, e)
             node_tip = None
-            time.sleep(rpc_retry_delay_seconds)
+            time.sleep(rpc_retry_delay)
 
-    # Determine the tip to use
-    if median_tip is None and node_tip is None:
-        tip = gwei_to_wei(0.01) # Fallback to 0.01 gwei if both methods fail
-    elif median_tip is None:
-        tip = node_tip
+    # cap node_tip and median because sometimes providers return very large values
+    MAX_PRIORITY_CAP_WEI = gwei_to_wei(max_priority_fee_cap_gwei)
+    if node_tip is not None:
+        node_tip = min(node_tip, MAX_PRIORITY_CAP_WEI)
+
+    if median_unbuffered is not None:
+        median_unbuffered = min(median_unbuffered, MAX_PRIORITY_CAP_WEI)
+
+    # ------------- 3) Decide tip (priority fee) to use -------------
+    # Use buffered historical median and node hint; choose the MAX of them to avoid underpaying,
+    # but stay within the configured cap. (You can choose min instead if you want frugal behavior.)
+    buffered_median = int(median_unbuffered * (1.0 + priority_fee_buffer)) if median_unbuffered is not None else None
+    buffered_node_tip = int(node_tip * (1.0 + priority_fee_buffer)) if node_tip is not None else None
+
+    tip_candidates = [c for c in (buffered_median, buffered_node_tip) if c is not None]
+    if tip_candidates:
+        tip = max(tip_candidates)
     else:
-        buffered_tip = int(median_tip * (1.0 + priority_fee_buffer))
-        tip = min(buffered_tip, node_tip) if node_tip is not None else buffered_tip
-        print(buffered_tip)
+        # last-resort default tiny tip (0.5 gwei)
+        tip = gwei_to_wei(0.5)
 
-    # Fetch the base fee from the pending block
-    try:
-        pending_block = w3.eth.get_block("pending")
-        base_fee = require_int(pending_block.get("baseFeePerGas", pending_block.get("baseFee")), "baseFeePerGas")
-    except Exception:
-        latest_block = w3.eth.get_block("latest")
-        base_fee = require_int(latest_block.get("baseFeePerGas", latest_block.get("baseFee")), "baseFeePerGas")
+    # final cap
+    tip = min(tip, MAX_PRIORITY_CAP_WEI)
 
-    # Calculate maxFeePerGas as 2 * baseFee + tip
-    int_tip = require_int(tip, "tip")
-    max_fee = base_fee * 2 + int_tip
+    # ------------- 4) Get base fee (pending preferred) -------------
+    base_fee = None
+    for bname in ("pending", "latest"):
+        try:
+            blk = w3.eth.get_block(bname)
+            # web3 may return field names differently; try both
+            base_fee = to_int_hexsafe(blk.get("baseFeePerGas") or blk.get("baseFee"))
+            if base_fee is not None:
+                break
+        except Exception as e:
+            LOG.debug("get_block(%s) failed: %s", bname, e)
+            base_fee = None
+            time.sleep(rpc_retry_delay)
+    if base_fee is None:
+        raise RuntimeError("Failed to fetch base fee from node")
 
-    return base_fee, int_tip, buffered_tip, max_fee
+    # ------------- 5) Compute a safe max_fee using EIP-1559 base fee change rules -------------
+    # Base fee can change by up to +12.5% per block (1/8). Project a worst-case increase over `base_fee_bump_blocks`.
+    per_block_bump = 1 + (1 / 8.0)  # 12.5%
+    projected_base_max = int(base_fee * (per_block_bump ** base_fee_bump_blocks))
+    # Safety multiplier to give some headroom, then add tip
+    max_fee = int(projected_base_max * safety_multiplier) + tip
+
+    return base_fee, tip, median_unbuffered, max_fee
+
 
 if __name__ == "__main__":
     rpc_url = os.getenv("ETH_INFURA")
-    if rpc_url is None:
-        raise ValueError("ETH_RPC_URL environment variable is not set.")
+    if not rpc_url:
+        raise ValueError("ETH_RPC_URL (or ETH_INFURA) environment variable not set")
 
-    w3 = Web3(Web3.HTTPProvider(rpc_url))
-    base_fee, min_priority_fee, history_buffered_median, max_fee = estimate_eip1559_fees(w3)
+    w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 10}))
+    base_fee, tip, median_raw, max_fee = estimate_eip1559_fees(w3)
 
-    print("Base Fee (gwei):", base_fee / GWEI)
-    print("min Priority fee (gwei):", min_priority_fee / GWEI)
-    print("history_buffered_median fee (gwei):", history_buffered_median / GWEI)
-    print("Max Fee (gwei):", max_fee / GWEI)
+    print("Base Fee (gwei):", round(wei_to_gwei(base_fee), 6))
+    print("Tip (priority) (gwei):", round(wei_to_gwei(tip), 6))
+    print("Historical median (gwei):", round(wei_to_gwei(median_raw), 6) if median_raw else "n/a")
+    print("Recommended maxFeePerGas (gwei):", round(wei_to_gwei(max_fee), 6))
