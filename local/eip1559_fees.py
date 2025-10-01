@@ -67,12 +67,11 @@ def _flatten_rewards(rewards) -> List[int]:
 
 def estimate_eip1559_fees(
     w3: Web3,
-    lookback_blocks: int = 20,
+    lookback_blocks: int = 7,
     reward_percentile: float = 50.0,
-    priority_fee_buffer: float = 0.20,
-    max_priority_fee_cap_gwei: float = 100.0,
+    priority_fee_buffer: float = 0.10,
+    max_priority_fee_cap_gwei: float = 1.0,
     base_fee_bump_blocks: int = 2,
-    safety_multiplier: float = 1.05,
     rpc_retry_attempts: int = 3,
     rpc_retry_delay: float = 0.2,
 ) -> Tuple[int, int, Optional[int], int]:
@@ -134,10 +133,10 @@ def estimate_eip1559_fees(
 
     tip_candidates = [c for c in (buffered_median, buffered_node_tip) if c is not None]
     if tip_candidates:
-        tip = max(tip_candidates)
+        tip = min(tip_candidates)
     else:
-        # last-resort default tiny tip (0.5 gwei)
-        tip = gwei_to_wei(0.5)
+        # last-resort default tiny tip (0.1 gwei)
+        tip = gwei_to_wei(0.1)
 
     # final cap
     tip = min(tip, MAX_PRIORITY_CAP_WEI)
@@ -163,7 +162,7 @@ def estimate_eip1559_fees(
     per_block_bump = 1 + (1 / 8.0)  # 12.5%
     projected_base_max = int(base_fee * (per_block_bump ** base_fee_bump_blocks))
     # Safety multiplier to give some headroom, then add tip
-    max_fee = int(projected_base_max * safety_multiplier) + tip
+    max_fee = int(projected_base_max) + tip
 
     return base_fee, tip, median_unbuffered, max_fee
 
