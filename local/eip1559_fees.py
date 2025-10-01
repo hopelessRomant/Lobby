@@ -35,21 +35,20 @@ def to_int_hexsafe(val: Any) -> Optional[int]:
         return None
 
 def percentile_value(data: List[int], percentile: float) -> Optional[int]:
-    """Return percentile using linear interpolation (0-100)."""
     if not data:
         return None
-    if percentile <= 0:
-        return data[0]
-    if percentile >= 100:
-        return data[-1]
     ds = sorted(data)
+    if percentile <= 0:
+        return ds[0]
+    if percentile >= 100:
+        return ds[-1]
     k = (len(ds) - 1) * (percentile / 100.0)
     f = math.floor(k)
     c = math.ceil(k)
     if f == c:
         return ds[int(k)]
     d0, d1 = ds[f], ds[c]
-    return int(d0 + (k - f) * (d1 - d0))
+    return int(round(d0 + (k - f) * (d1 - d0)))
 
 def _flatten_rewards(rewards) -> List[int]:
     """reward is list of lists (per-block). Flatten and convert to ints safely."""
