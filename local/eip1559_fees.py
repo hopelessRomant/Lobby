@@ -1,8 +1,8 @@
 import os
 import time
-import math
 import logging
 from typing import Tuple, Optional, Any, List
+import statistics
 from web3 import Web3
 
 LOG = logging.getLogger(__name__)
@@ -34,21 +34,10 @@ def to_int_hexsafe(val: Any) -> Optional[int]:
     except Exception:
         return None
 
-def percentile_value(data: List[int], percentile: float) -> Optional[int]:
+def int_median(data: list[int]) -> Optional[int]:
     if not data:
         return None
-    ds = sorted(data)
-    if percentile <= 0:
-        return ds[0]
-    if percentile >= 100:
-        return ds[-1]
-    k = (len(ds) - 1) * (percentile / 100.0)
-    f = math.floor(k)
-    c = math.ceil(k)
-    if f == c:
-        return ds[int(k)]
-    d0, d1 = ds[f], ds[c]
-    return int(round(d0 + (k - f) * (d1 - d0)))
+    return int(round(statistics.median(data)))
 
 def _flatten_rewards(rewards) -> List[int]:
     """reward is list of lists (per-block). Flatten and convert to ints safely."""
@@ -68,20 +57,13 @@ def _flatten_rewards(rewards) -> List[int]:
 def estimate_eip1559_fees(
     w3: Web3,
     lookback_blocks: int = 7,
-    reward_percentile: float = 50.0,
+    reward_percentile: float = 40.0,
     priority_fee_buffer: float = 0.10,
     max_priority_fee_cap_gwei: float = 1.0,
     base_fee_bump_blocks: int = 2,
     rpc_retry_attempts: int = 3,
     rpc_retry_delay: float = 0.2,
-) -> Tuple[int, int, Optional[int], int]:
-    """
-    Returns: (base_fee_wei, tip_wei, median_unbuffered_wei_or_None, max_fee_wei)
-    - base_fee_wei: pending block base fee (or latest on failure)
-    - tip_wei: chosen priority fee (wei) — workable average-ish value
-    - median_unbuffered_wei: median raw from history (before buffer)
-    - max_fee_wei: recommended maxFeePerGas (wei)
-    """
+) -> Tuple[int, int, int]:
 
     # ------------- 1) Gather historical priority fee (from fee_history) --------------
     median_unbuffered = None
@@ -90,7 +72,8 @@ def estimate_eip1559_fees(
         fh = w3.eth.fee_history(lookback_blocks, "latest", [reward_percentile])
         rewards = fh.get("reward", [])
         flat = _flatten_rewards(rewards)
-        median_unbuffered = percentile_value(flat, reward_percentile)
+        print(sorted(flat))
+        median_unbuffered = int_median(flat)
         LOG.debug("fee_history flattened rewards count=%d", len(flat))
     except Exception as e:
         LOG.warning("fee_history failed: %s", e)
@@ -133,7 +116,7 @@ def estimate_eip1559_fees(
 
     tip_candidates = [c for c in (buffered_median, buffered_node_tip) if c is not None]
     if tip_candidates:
-        tip = min(tip_candidates)
+        tip = max(tip_candidates)
     else:
         # last-resort default tiny tip (0.1 gwei)
         tip = gwei_to_wei(0.1)
@@ -164,7 +147,7 @@ def estimate_eip1559_fees(
     # Safety multiplier to give some headroom, then add tip
     max_fee = int(projected_base_max) + tip
 
-    return base_fee, tip, median_unbuffered, max_fee
+    return base_fee, tip, max_fee
 
 
 if __name__ == "__main__":
@@ -173,9 +156,8 @@ if __name__ == "__main__":
         raise ValueError("ETH_RPC_URL (or ETH_INFURA) environment variable not set")
 
     w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 10}))
-    base_fee, tip, median_raw, max_fee = estimate_eip1559_fees(w3)
+    base_fee, tip, max_fee = estimate_eip1559_fees(w3)
 
-    print("Base Fee (gwei):", round(wei_to_gwei(base_fee), 6))
-    print("Tip (priority) (gwei):", round(wei_to_gwei(tip), 6))
-    print("Historical median (gwei):", round(wei_to_gwei(median_raw), 6) if median_raw else "n/a")
+    print("baseFeePerGas (gwei):", round(wei_to_gwei(base_fee), 6))
+    print("maxPriorityFeePerGas (gwei):", round(wei_to_gwei(tip), 6))
     print("Recommended maxFeePerGas (gwei):", round(wei_to_gwei(max_fee), 6))
