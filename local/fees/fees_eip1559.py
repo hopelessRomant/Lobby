@@ -35,7 +35,7 @@ def to_int_hexsafe(val: Any) -> Optional[int]:
     except Exception:
         return None
 
-def estimate_eip1559_fees(
+def eip1559_fees(
     w3: Web3,
     lookback_blocks: int = 8,
     reward_percentile: float = 40.0,
@@ -121,6 +121,13 @@ def estimate_eip1559_fees(
 
     return base_fee, tip, max_fee
 
+def get_tx_fees(w3: Web3) -> dict:
+    base_fee, tip, max_fee = eip1559_fees(w3)
+    return {
+        "baseFeePerGas": base_fee,
+        "maxPriorityFeePerGas": tip,
+        "maxFeePerGas": max_fee
+    }
 
 if __name__ == "__main__":
     rpc_url = os.getenv("ETH_INFURA")
@@ -128,8 +135,4 @@ if __name__ == "__main__":
         raise ValueError("ETH_RPC_URL environment variable not set")
 
     w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 10}))
-    base_fee, tip, max_fee = estimate_eip1559_fees(w3)
-
-    print("baseFeePerGas (gwei):", wei_to_gwei(base_fee))
-    print("maxPriorityFeePerGas (gwei):", wei_to_gwei(tip))
-    print("maxFeePerGas (gwei):", wei_to_gwei(max_fee))
+    print(get_tx_fees(w3))
