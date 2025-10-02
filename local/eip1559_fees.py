@@ -1,13 +1,8 @@
 import os
 import time
-import logging
 from typing import Tuple, Optional, Any, List
 import statistics
 from web3 import Web3
-
-LOG = logging.getLogger(__name__)
-LOG.addHandler(logging.StreamHandler())
-LOG.setLevel(logging.INFO)
 
 GWEI = 10**9
 
@@ -74,9 +69,7 @@ def estimate_eip1559_fees(
         flat = _flatten_rewards(rewards)
         print(sorted(flat))
         median_unbuffered = int_median(flat)
-        LOG.debug("fee_history flattened rewards count=%d", len(flat))
     except Exception as e:
-        LOG.warning("fee_history failed: %s", e)
         median_unbuffered = None
 
     # ------------- 2) Ask node for its max priority fee suggestion if available -------------
@@ -96,7 +89,6 @@ def estimate_eip1559_fees(
                 node_tip = None
             break
         except Exception as e:
-            LOG.debug("max_priority_fee attempt %d failed: %s", attempt + 1, e)
             node_tip = None
             time.sleep(rpc_retry_delay)
 
@@ -134,7 +126,6 @@ def estimate_eip1559_fees(
             if base_fee is not None:
                 break
         except Exception as e:
-            LOG.debug("get_block(%s) failed: %s", bname, e)
             base_fee = None
             time.sleep(rpc_retry_delay)
     if base_fee is None:
