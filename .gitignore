@@ -1,0 +1,39 @@
+# Node / CDK
+node_modules/
+dist/
+*.tsbuildinfo
+.envrc
+
+# pnpm store / lockfiles
+.pnpm-store
+pnpm-lock.yaml
+
+# Python virtual environments
+**/uv.lock
+**/package-lock.json
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+*.egg-info/
+*.pytest_cache/
+
+# Docker
+**/Dockerfile
+**/.dockerignore
+**/docker-compose.override.yml
+*.tar
+*.img
+docker-compose.override.yml
+docker-compose.local.yml
+
+# CDK / Synth outputs
+.cdk.staging
+cdk.out
+*.template.json
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
