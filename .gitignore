@@ -19,8 +19,6 @@ pnpm-lock.yaml
 *.pytest_cache/
 
 # Docker
-**/Dockerfile
-**/.dockerignore
 **/docker-compose.override.yml
 *.tar
 *.img
