@@ -9,7 +9,7 @@ dist/
 pnpm-lock.yaml
 
 # Python virtual environments
-**/uv.lock
+**/poetry.lock
 **/package-lock.json
 **/.venv/
 **/__pycache__/

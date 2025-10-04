@@ -1,0 +1,18 @@
+[project]
+name = "local"
+version = "0.1.0"
+description = "Transaction relay hub for Lobby"
+authors = [
+    {name = "hopelessRomant",email = "satvolume@gmail.com"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.12,<4"
+dependencies = [
+    "web3 (>=7.13.0,<8.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
