@@ -1,0 +1,24 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Docker artifacts
+*.tar
+*.img
+
+# Git / version control
+.git/
+.gitignore
+
+# IDE / OS files
+.vscode/
+.idea/
+.DS_Store
