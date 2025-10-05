@@ -1,9 +1,7 @@
 # Local
 This part of Lobby is resposible for all the local machine script that relays the unsigned trasaction to AWS.
 
-```>
-This project uses poetry for dependency management instead of a traditional pip.
-```  
+>This project uses poetry for dependency management instead of a traditional pip.  
 
 ## Getting Started
 
@@ -21,5 +19,5 @@ poetry config virtualenvs.in-project true
 2. Once `poetry` is installed, you can install the project dependencies defined in `pyproject.toml` by running:
 
 ```bash
-poetry install
+poetry install --no-root
 ```
