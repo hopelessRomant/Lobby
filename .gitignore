@@ -35,3 +35,6 @@ cdk.out
 .idea/
 *.swp
 .DS_Store
+
+#directory
+local
