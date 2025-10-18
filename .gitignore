@@ -36,5 +36,5 @@ cdk.out
 *.swp
 .DS_Store
 
-#Go compile
-local/dummy
+#Rust
+target
