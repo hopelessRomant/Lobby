@@ -36,5 +36,5 @@ cdk.out
 *.swp
 .DS_Store
 
-#directory
-lcoal/local
+#Go compile
+local/dummy
